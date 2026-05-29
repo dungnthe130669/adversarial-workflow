@@ -1,0 +1,35 @@
+{
+  "name": "adversarial-workflow",
+  "version": "3.0.0",
+  "description": "Claude Code adversarial multi-agent workflows — 11 slash commands covering the full software lifecycle",
+  "bin": {
+    "adversarial-workflow": "./install.js"
+  },
+  "files": [
+    "install.js",
+    "workflows/",
+    "README.md"
+  ],
+  "keywords": [
+    "claude-code",
+    "claude",
+    "ai-agents",
+    "workflow",
+    "adversarial",
+    "code-review",
+    "multi-agent",
+    "subagents",
+    "anthropic",
+    "slash-command"
+  ],
+  "author": "Dung Nguyen",
+  "license": "MIT",
+  "engines": {
+    "node": ">=16"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dungnthe130669/adversarial-workflow"
+  },
+  "homepage": "https://github.com/dungnthe130669/adversarial-workflow#readme"
+}
