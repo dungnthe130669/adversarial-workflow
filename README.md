@@ -1,79 +1,85 @@
 # adversarial-workflow
 
-Claude Code slash commands that use adversarial multi-agent verification — inspired by [Jarred Sumner](https://x.com/jarredsumner)'s technique for rewriting Bun from Zig to Rust in 6 days.
+[![npm version](https://img.shields.io/npm/v/adversarial-workflow.svg)](https://www.npmjs.com/package/adversarial-workflow)
+[![CI](https://github.com/dungnthe130669/adversarial-workflow/actions/workflows/ci.yml/badge.svg)](https://github.com/dungnthe130669/adversarial-workflow/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D16-brightgreen)](https://nodejs.org)
+
+**11 adversarial multi-agent slash commands for Claude Code** — covering the full software development lifecycle. Each workflow pits multiple independent AI agents against each other to produce higher-quality, battle-tested output.
 
 ## How it works
 
-Each workflow:
-1. Parses a spec file to extract discrete tasks
-2. Spawns independent agents per task (fix / implement / patch / migrate)
-3. Runs **2 adversarial reviewers in parallel** — each has an isolated context and is prompted to find problems
-4. Only applies changes that pass majority vote (≥1/2 reviewers approve)
+Traditional AI coding: one agent proposes → you accept.
 
-The adversarial reviewers don't share context with the implementer, so they can't be biased by "I know why we did it this way." Their job is to prove the change wrong.
+Adversarial: **attacker agents** propose solutions → **verifier agents** independently scrutinize each one → only outputs that survive verification reach you. No rubber-stamping.
 
-## Install
-
-```bash
-# Install globally (all projects)
-npx adversarial-workflow
-
-# Install for current project only
-npx adversarial-workflow --project
+```
+User request
+    │
+    ▼
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│  Agent A    │     │  Agent B    │     │  Agent C    │  ← parallel attackers
+│  (propose)  │     │  (propose)  │     │  (propose)  │
+└──────┬──────┘     └──────┬──────┘     └──────┬──────┘
+       └────────────────────┼────────────────────┘
+                            ▼
+                   ┌─────────────────┐
+                   │  Verifier Pool  │  ← independent review
+                   │  (reject/pass)  │
+                   └────────┬────────┘
+                            ▼
+                      Final output
 ```
 
-Restart Claude Code after installing (workflows load on startup).
+## Installation
+
+```bash
+npx adversarial-workflow install
+```
+
+This copies all 11 workflow scripts into your project's `.claude/commands/` directory, making them available as `/adversarial-*` slash commands inside Claude Code.
 
 ## Workflows
 
-### `/adversarial-bugfix`
-Fix bugs from a `REPORT.md` file.
+| Command | Use case |
+|---|---|
+| `/adversarial-bugfix` | Fix bugs: parallel patches → adversarial verification |
+| `/adversarial-feature` | Build features: spec → design → parallel implementation → gate |
+| `/adversarial-security` | Security audit: parallel attack vectors → exploitability scoring |
+| `/adversarial-review` | PR review: 4 parallel reviewers (security/perf/correctness/style) → REVIEW.md |
+| `/adversarial-tests` | Generate tests: parallel strategies → coverage gate |
+| `/adversarial-deps` | Dependency audit: CVEs, outdated packages, license conflicts |
+| `/adversarial-rca` | Root cause analysis: parallel hypotheses → evidence ranking |
+| `/adversarial-debt` | Tech debt assessment: parallel scanners → priority-ranked backlog |
+| `/adversarial-migration` | Plan migrations: parallel path analysis → risk-weighted rollout |
+| `/adversarial-scaffold` | Greenfield build: spec → parallel scaffolding → integration gate |
+| `/adversarial-crates` | Decompose codebase into independently buildable units |
 
-```markdown
-# REPORT.md
-## Bug 1: SQL injection in login
-File: src/auth.js
-Description: user input concatenated directly into SQL query
-Expected: parameterized queries used
-Actual: `SELECT * FROM users WHERE name = '${input}'`
+## Usage
+
+After installation, restart your Claude Code session and use any slash command:
+
+```
+/adversarial-bugfix   fix the authentication bypass in auth.ts
+/adversarial-security audit the payment processing module
+/adversarial-review   PR #142
+/adversarial-tests    generate tests for UserService
 ```
 
-### `/adversarial-feature`
-Implement features from a `FEATURE.md` file.
+## Requirements
 
-```markdown
-# FEATURE.md
-## Add rate limiting to /api/login
-Limit login attempts to 5 per minute per IP.
-File: src/middleware/rateLimit.js
-Acceptance: returns 429 after 5 attempts, resets after 60s
-```
+- [Claude Code](https://claude.ai/code) (any version)
+- Node.js ≥ 16
+- No other dependencies
 
-### `/adversarial-security`
-Scan codebase for vulnerabilities, propose patches, verify, apply.
+## Contributing
 
-```bash
-/adversarial-security src/
-```
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to add new workflows or improve existing ones.
 
-### `/adversarial-migration`
-Migrate code following a `MIGRATION.md` spec.
+## Changelog
 
-```markdown
-# MIGRATION.md
-## Migration: Express v4 → v5
-From: 4.x
-To: 5.x
+See [CHANGELOG.md](./CHANGELOG.md) for version history.
 
-### Step 1: Replace app.param() usage
-File: src/routes/users.js
-Breaking: true
-Rollback: revert to app.param with callback signature
-```
+## License
 
-## Why adversarial?
-
-Standard code review: reviewer knows why the author made the choice → bias.  
-Adversarial review: reviewer's only context is the change itself → no bias, job is to find holes.
-
-Two reviewers with orthogonal angles (correctness vs regressions) catch different classes of bugs. Changes only land when both agree.
+MIT © 2025 Dung Nguyen

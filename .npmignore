@@ -1,0 +1,22 @@
+# Directories
+.github/
+scripts/
+
+# Test files
+*.test.js
+
+# Linter / formatter config
+.eslintrc*
+.eslintignore
+.prettierrc*
+.prettierignore
+
+# Contributor docs (not needed at runtime)
+CONTRIBUTING.md
+CHANGELOG.md
+
+# Keep in publish:
+# README.md
+# package.json
+# install.js
+# workflows/
