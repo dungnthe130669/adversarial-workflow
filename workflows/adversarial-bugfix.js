@@ -1,220 +1,281 @@
-
 export const meta = {
   name: 'adversarial-bugfix',
-  description: 'Parse bug report, propose fixes per bug, adversarially verify each fix, apply confirmed fixes',
+  description: 'Jarred Sumner pattern: split REPORT.md → parallel fix+2-adversarial-review (no git/build) → apply all → build → test → commit → PR',
   phases: [
-    { title: 'Parse', detail: 'Extract bugs from REPORT.md' },
-    { title: 'Fix', detail: 'Propose a fix per bug' },
-    { title: 'Verify', detail: 'Adversarially challenge each proposed fix' },
-    { title: 'Apply', detail: 'Apply confirmed fixes' },
+    { title: 'Split',  detail: 'Split REPORT.md into individual bug files' },
+    { title: 'Fix',    detail: 'Propose fix per bug (no git, no build)' },
+    { title: 'Refute', detail: '2 independent agents try to disprove each fix' },
+    { title: 'Apply',  detail: 'Apply confirmed fixes' },
+    { title: 'Ship',   detail: 'Build → test → commit → PR' },
   ],
+}
+
+// ─── Schemas ────────────────────────────────────────────────────────────────
+
+const BUG_SCHEMA = {
+  type: 'object',
+  properties: {
+    id:          { type: 'string' },
+    title:       { type: 'string' },
+    file:        { type: 'string' },
+    description: { type: 'string' },
+    expected:    { type: 'string' },
+    actual:      { type: 'string' },
+  },
+  required: ['id', 'title', 'file', 'description', 'expected', 'actual'],
 }
 
 const BUGS_SCHEMA = {
   type: 'object',
-  properties: {
-    bugs: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          id: { type: 'string' },
-          title: { type: 'string' },
-          file: { type: 'string' },
-          description: { type: 'string' },
-          expected: { type: 'string' },
-          actual: { type: 'string' },
-        },
-        required: ['id', 'title', 'file', 'description', 'expected', 'actual'],
-      },
-    },
-  },
+  properties: { bugs: { type: 'array', items: BUG_SCHEMA } },
   required: ['bugs'],
 }
 
 const FIX_SCHEMA = {
   type: 'object',
   properties: {
-    bugId: { type: 'string' },
-    file: { type: 'string' },
-    analysis: { type: 'string' },
+    bugId:        { type: 'string' },
+    file:         { type: 'string' },
+    analysis:     { type: 'string' },
     originalCode: { type: 'string' },
-    fixedCode: { type: 'string' },
-    explanation: { type: 'string' },
+    fixedCode:    { type: 'string' },
+    explanation:  { type: 'string' },
   },
   required: ['bugId', 'file', 'analysis', 'originalCode', 'fixedCode', 'explanation'],
 }
 
-const VERDICT_SCHEMA = {
+const REFUTE_SCHEMA = {
   type: 'object',
   properties: {
-    bugId: { type: 'string' },
-    approved: { type: 'boolean' },
-    issues: { type: 'array', items: { type: 'string' } },
-    suggestion: { type: 'string' },
+    bugId:     { type: 'string' },
+    approved:  { type: 'boolean' },
+    flaws:     { type: 'array', items: { type: 'string' } },
+    verdict:   { type: 'string' },
   },
-  required: ['bugId', 'approved', 'issues', 'suggestion'],
+  required: ['bugId', 'approved', 'flaws', 'verdict'],
 }
 
 const APPLY_SCHEMA = {
   type: 'object',
   properties: {
-    file: { type: 'string' },
+    bugId:   { type: 'string' },
     applied: { type: 'boolean' },
     summary: { type: 'string' },
   },
-  required: ['file', 'applied', 'summary'],
+  required: ['bugId', 'applied', 'summary'],
 }
 
-// Phase 1: Parse bug report
-phase('Parse')
-const reportPath = args || './REPORT.md'
+const SHIP_SCHEMA = {
+  type: 'object',
+  properties: {
+    buildPassed: { type: 'boolean' },
+    testsPassed: { type: 'boolean' },
+    commitSha:   { type: 'string' },
+    prUrl:       { type: 'string' },
+    notes:       { type: 'string' },
+  },
+  required: ['buildPassed', 'testsPassed', 'commitSha', 'prUrl'],
+}
+
+// ─── Phase 1: Split REPORT.md → individual bug files ────────────────────────
+
+phase('Split')
+log('Reading REPORT.md and splitting into individual bug files...')
+
 const parsed = await agent(
-  `Read the bug report at ${reportPath} and extract all bugs into structured data.
-For each bug extract: a short id (e.g. "bug1"), title, file path, description, expected behavior, actual behavior.
-Return raw JSON only.`,
-  { label: 'parse-report', phase: 'Parse', schema: BUGS_SCHEMA }
+  `Read the file ./REPORT.md and extract every bug into structured JSON.
+For each bug include: id (e.g. BUG-001), title, file path affected, description of the bug, expected behavior, actual behavior.
+Write each bug as a separate file: ./bugs/BUG-001.json, ./bugs/BUG-002.json, etc.
+Return the full list as JSON matching the schema.`,
+  { label: 'split', phase: 'Split', schema: BUGS_SCHEMA }
 )
 
-log(`Found ${parsed.bugs.length} bug(s): ${parsed.bugs.map(b => b.title).join(', ')}`)
+if (!parsed?.bugs?.length) {
+  log('No bugs found in REPORT.md — nothing to do.')
+  return { bugsFound: 0 }
+}
 
-// Phase 2 + 3: pipeline — propose fix, then adversarially verify
-const results = await pipeline(
-  parsed.bugs,
-  // Stage 1: propose fix
-  async (bug) => {
+log(`Found ${parsed.bugs.length} bug(s) — splitting into parallel tracks...`)
+
+// ─── Phase 2+3: Per-bug parallel: fix → 2 adversarial refuters ──────────────
+
+phase('Fix')
+phase('Refute')
+
+const NO_GIT_BUILD = `
+IMPORTANT CONSTRAINTS (you are one of many agents running in parallel on the same branch):
+- Do NOT run any git commands (git add, git commit, git push, git checkout, etc.)
+- Do NOT run any build commands (npm run build, bun build, make, cargo build, etc.)
+- Do NOT run any test commands
+- Only read files and write/edit code changes
+Violating these constraints will corrupt the shared workspace.`
+
+const results = await parallel(
+  parsed.bugs.map(bug => async () => {
+
+    // Agent A: fix the bug
     const fix = await agent(
-      `You are a careful software engineer. Analyze and fix this bug:
+      `You are fixing a single bug. Read ./bugs/${bug.id}.json for full details.
 
-Bug ID: ${bug.id}
-Title: ${bug.title}
+Bug: ${bug.id} — ${bug.title}
 File: ${bug.file}
-Description: ${bug.description}
-Expected: ${bug.expected}
-Actual: ${bug.actual}
 
-Steps:
-1. Read the file at ${bug.file} using the Read tool
-2. Identify the root cause
-3. Write the minimal correct fix
-4. Return originalCode (the exact lines to replace) and fixedCode (replacement)
-
-Be precise — your fix must match the actual file contents exactly.`,
+Task:
+1. Read the affected file(s)
+2. Understand the root cause
+3. Write the minimal fix
+4. Return the fix as JSON (originalCode + fixedCode must be exact strings from the file)
+${NO_GIT_BUILD}`,
       { label: `fix:${bug.id}`, phase: 'Fix', schema: FIX_SCHEMA }
     )
-    return { bug, fix }
-  },
-  // Stage 2: adversarial verification — 2 independent skeptics
-  async ({ bug, fix }) => {
-    const [skeptic1, skeptic2] = await Promise.all([
-      agent(
-        `You are an adversarial code reviewer. Try to find problems with this proposed fix.
-Default to approved=false unless the fix is clearly correct and complete.
 
-Bug: ${bug.description}
-Expected: ${bug.expected}
-Actual: ${bug.actual}
+    if (!fix) return { bug, fix: null, refutations: [], confirmed: false }
+
+    // Agent B + C: independently try to disprove the fix
+    const [refuter1, refuter2] = await parallel([
+      async () => agent(
+        `You are an adversarial reviewer. Your ONLY job is to REFUTE this bugfix — find every flaw, edge case, regression, or incorrect assumption. Be ruthless.
+
+Bug: ${bug.id} — ${bug.title}
 File: ${fix.file}
 
-Original code:
+Proposed fix:
+BEFORE:
 \`\`\`
 ${fix.originalCode}
 \`\`\`
-
-Proposed fix:
+AFTER:
 \`\`\`
 ${fix.fixedCode}
 \`\`\`
 
-Reviewer angle: correctness and edge cases.
-IMPORTANT: Only evaluate this specific bug (${bug.id}) and its fix. Do NOT reject because other bugs exist elsewhere in the file — each bug is fixed independently.
-Check: Does it actually fix THIS bug? Does it break other cases? Are there off-by-one or null/undefined edge cases?`,
-        { label: `verify-correctness:${bug.id}`, phase: 'Verify', schema: VERDICT_SCHEMA }
+Fixer's explanation: ${fix.explanation}
+
+Your angle: SECURITY + CORRECTNESS. Does this fix introduce new vulnerabilities? Does it actually solve the root cause or just mask symptoms? Are there inputs that still trigger the bug?
+Set approved=false if you find ANY serious flaw. Only approve if the fix is airtight.
+${NO_GIT_BUILD}`,
+        { label: `refute-security:${bug.id}`, phase: 'Refute', schema: REFUTE_SCHEMA }
       ),
-      agent(
-        `You are an adversarial code reviewer. Try to find problems with this proposed fix.
-Default to approved=false unless the fix is clearly correct and complete.
+      async () => agent(
+        `You are an adversarial reviewer. Your ONLY job is to REFUTE this bugfix — find every flaw, edge case, regression, or incorrect assumption. Be ruthless.
 
-Bug: ${bug.description}
-Expected: ${bug.expected}
-Actual: ${bug.actual}
+Bug: ${bug.id} — ${bug.title}
 File: ${fix.file}
 
-Original code:
+Proposed fix:
+BEFORE:
 \`\`\`
 ${fix.originalCode}
 \`\`\`
-
-Proposed fix:
+AFTER:
 \`\`\`
 ${fix.fixedCode}
 \`\`\`
 
-Reviewer angle: regressions and spec alignment.
-IMPORTANT: Only evaluate this specific bug (${bug.id}) and its fix. Do NOT reject because other bugs exist elsewhere in the file — each bug is fixed independently.
-Check: Does the fix match the spec exactly? Could it break callers that depend on current behavior? Does it introduce new bugs?`,
-        { label: `verify-regressions:${bug.id}`, phase: 'Verify', schema: VERDICT_SCHEMA }
-      )
+Fixer's explanation: ${fix.explanation}
+
+Your angle: REGRESSIONS + SPEC. Could this break callers that depend on current behavior? Does it match the spec exactly? Does it introduce new bugs elsewhere?
+Set approved=false if you find ANY serious flaw. Only approve if the fix is airtight.
+${NO_GIT_BUILD}`,
+        { label: `refute-regression:${bug.id}`, phase: 'Refute', schema: REFUTE_SCHEMA }
+      ),
     ])
-    const votes = [skeptic1, skeptic2].filter(Boolean)
-    const approvals = votes.filter(v => v.approved).length
-    const confirmed = approvals >= Math.ceil(votes.length / 2)
-    return { bug, fix, votes, confirmed, approvals, total: votes.length }
-  }
+
+    const refutations = [refuter1, refuter2].filter(Boolean)
+    const approvals = refutations.filter(r => r.approved).length
+    const confirmed = approvals >= Math.ceil(refutations.length / 2)
+
+    if (!confirmed) {
+      const flaws = refutations.flatMap(r => r.flaws)
+      log(`  REJECTED ${bug.id}: ${flaws.join('; ')}`)
+    } else {
+      log(`  CONFIRMED ${bug.id}: ${approvals}/${refutations.length} refuters approved`)
+    }
+
+    return { bug, fix, refutations, confirmed, approvals, total: refutations.length }
+  })
 )
 
 const confirmed = results.filter(Boolean).filter(r => r.confirmed)
-const rejected = results.filter(Boolean).filter(r => !r.confirmed)
+const rejected  = results.filter(Boolean).filter(r => !r.confirmed)
 
-log(`Verification complete: ${confirmed.length} fix(es) confirmed, ${rejected.length} rejected`)
-for (const r of rejected) {
-  const issues = r.votes.flatMap(v => v.issues)
-  log(`  REJECTED ${r.bug.id}: ${issues.join('; ')}`)
-}
+log(`\nVerification: ${confirmed.length} confirmed, ${rejected.length} rejected`)
 
-// Phase 4: Apply confirmed fixes
+// ─── Phase 4: Apply all confirmed fixes ────────────────────────────────────
+
 phase('Apply')
+
 const applied = await parallel(
-  confirmed.map(({ bug, fix, votes }) => async () => {
-    const suggestionNotes = votes.map(v => v.suggestion).filter(Boolean).join('; ')
+  confirmed.map(({ bug, fix, refutations }) => async () => {
+    const notes = refutations.map(r => r.verdict).filter(Boolean).join(' | ')
     return agent(
-      `Apply this confirmed code fix to the file. Use the Edit tool to make the change.
+      `Apply this confirmed bugfix using the Edit tool. Make the exact change specified — no more, no less.
 
 File: ${fix.file}
-Bug fixed: ${bug.title}
-Verifier notes (incorporate if relevant): ${suggestionNotes || 'none'}
+Bug: ${bug.id} — ${bug.title}
 
-Replace exactly this code (old_string):
+Replace EXACTLY this code:
 \`\`\`
 ${fix.originalCode}
 \`\`\`
 
-With this code (new_string):
+With EXACTLY this code:
 \`\`\`
 ${fix.fixedCode}
 \`\`\`
 
-After applying, read the file back and confirm the change is present.
-Return applied=true if the edit succeeded, false otherwise, and a one-line summary.`,
+Reviewer notes to incorporate if relevant: ${notes || 'none'}
+
+After editing, read the file back to confirm the change is present. Return applied=true if successful.`,
       { label: `apply:${bug.id}`, phase: 'Apply', schema: APPLY_SCHEMA }
     )
   })
 )
 
 const successes = applied.filter(Boolean).filter(a => a.applied)
-const failures = applied.filter(Boolean).filter(a => !a.applied)
+const failures  = applied.filter(Boolean).filter(a => !a.applied)
+log(`Applied: ${successes.length} succeeded, ${failures.length} failed`)
+
+// ─── Phase 5: Build → test → commit → PR ───────────────────────────────────
+
+phase('Ship')
+
+const branchName = `fix/adversarial-${Date.now()}`
+const commitMsg  = confirmed.map(r => `fix(${r.bug.id}): ${r.bug.title}`).join('\n')
+
+const ship = await agent(
+  `All bugfixes have been applied. Now ship them:
+
+1. Create a new branch: git checkout -b ${branchName}
+2. Run the build command for this project (detect from package.json / Makefile / Cargo.toml / etc.)
+3. Run the relevant tests for the files that were changed
+4. If build and tests pass: git add -A && git commit -m "${commitMsg}"
+5. git push origin ${branchName}
+6. Open a PR with title "fix: adversarial bugfix batch (${confirmed.length} bugs)" and body listing each bug fixed
+7. Return buildPassed, testsPassed, commitSha, prUrl
+
+Bugs fixed in this batch:
+${confirmed.map(r => `- ${r.bug.id}: ${r.bug.title} (${r.fix.file})`).join('\n')}
+
+If build fails, report the error in notes and set buildPassed=false. Do NOT force-push or skip tests.`,
+  { label: 'ship', phase: 'Ship', schema: SHIP_SCHEMA }
+)
+
+// ─── Summary ────────────────────────────────────────────────────────────────
 
 return {
-  bugsFound: parsed.bugs.length,
-  fixesConfirmed: confirmed.length,
-  fixesRejected: rejected.length,
-  fixesApplied: successes.length,
-  fixesFailed: failures.length,
-  details: results.filter(Boolean).map(r => ({
-    bug: r.bug.id,
+  bugsFound:      parsed.bugs.length,
+  confirmed:      confirmed.length,
+  rejected:       rejected.length,
+  applied:        successes.length,
+  buildPassed:    ship?.buildPassed ?? false,
+  testsPassed:    ship?.testsPassed ?? false,
+  commitSha:      ship?.commitSha ?? null,
+  prUrl:          ship?.prUrl ?? null,
+  rejectedBugs:   rejected.map(r => ({
+    id:    r.bug.id,
     title: r.bug.title,
-    confirmed: r.confirmed,
-    approvals: `${r.approvals}/${r.total}`,
+    flaws: r.refutations.flatMap(x => x.flaws),
   })),
-  appliedSummaries: successes.map(a => a.summary),
+  appliedBugs: successes.map(a => a.bugId),
 }
